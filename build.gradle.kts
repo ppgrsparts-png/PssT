@@ -51,3 +51,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-core")
     implementation("com.google.android.gms:play-services-nearby:19.3.0")
 }
+plugins {
+    id("com.android.application") version "8.5.2" apply false
+    id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+}
