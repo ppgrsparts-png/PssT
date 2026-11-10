@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -255,7 +256,24 @@ sealed class Screen {
 }
 
 @Composable
-fun PssstApp(repo: Repo, nearby: NearbyManager, startNearby: () -> Unit) {
+fun ConfirmDialog(title: String, text: String, confirm: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surf,
+        title = { Text(title, color = Color.White) },
+        text = { Text(text, color = Muted) },
+        confirmButton = {
+            TextButton(onClick = {
+                onDismiss()
+                onConfirm()
+            }) { Text(confirm, color = Pink, fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler", color = Color.White) } }
+    )
+}
+
+@Composable
+fun PssstApp(repo: Repo, nearby: NearbyManager, startNearby: () -> Unit, stopNearby: () -> Unit) {
     if (repo.profile == null) {
         ProfileEditor(repo, "Créer mon profil Pssst", "Votre photo, prénom et bio sont visibles par les personnes autour. Votre numéro et vos réseaux ne sont partagés qu’avec ceux que vous acceptez.", onSaved = {})
         return
@@ -264,6 +282,21 @@ fun PssstApp(repo: Repo, nearby: NearbyManager, startNearby: () -> Unit) {
 
     var tab by remember { mutableStateOf(0) }
     var screen by remember { mutableStateOf<Screen>(Screen.Tabs) }
+
+    // Ouverture depuis une notification
+    LaunchedEffect(repo.openTarget) {
+        val t = repo.openTarget ?: return@LaunchedEffect
+        repo.openTarget = null
+        repo.activeConv = null
+        when {
+            t == Notifs.OPEN_NEARBY -> {
+                screen = Screen.Tabs
+                tab = 0
+            }
+            t.startsWith(Notifs.OPEN_FRIEND) -> screen = Screen.FriendView(t.removePrefix(Notifs.OPEN_FRIEND))
+            else -> screen = Screen.Chat(t)
+        }
+    }
 
     BackHandler(enabled = screen != Screen.Tabs) {
         repo.activeConv = null
@@ -307,10 +340,10 @@ fun PssstApp(repo: Repo, nearby: NearbyManager, startNearby: () -> Unit) {
             ) { pad ->
                 Box(Modifier.padding(pad)) {
                     when (tab) {
-                        0 -> NearbyScreen(repo, nearby) { screen = Screen.FriendView(it) }
+                        0 -> NearbyScreen(repo, nearby, startNearby, stopNearby) { screen = Screen.FriendView(it) }
                         1 -> FriendsScreen(repo, nearby) { screen = Screen.FriendView(it) }
                         2 -> MessagesScreen(repo, nearby, onOpen = { screen = Screen.Chat(it) }, onNewGroup = { screen = Screen.NewGroup })
-                        else -> ProfileTab(repo, nearby)
+                        else -> ProfileTab(repo, nearby, stopNearby)
                     }
                 }
             }
@@ -374,8 +407,20 @@ fun ProfileEditor(
 }
 
 @Composable
-fun ProfileTab(repo: Repo, nearby: NearbyManager) {
+fun ProfileTab(repo: Repo, nearby: NearbyManager, stopNearby: () -> Unit) {
     var saved by remember { mutableStateOf(false) }
+    var confirmClear by remember { mutableStateOf(false) }
+    if (confirmClear) {
+        ConfirmDialog(
+            "Effacer toutes vos données ?",
+            "Profil, amis, groupes et messages seront supprimés de ce téléphone. C’est définitif.",
+            "Tout effacer", onDismiss = { confirmClear = false }
+        ) {
+            stopNearby()
+            nearby.reset()
+            repo.clearAll()
+        }
+    }
     ProfileEditor(repo, "Mon profil", null, onSaved = {
         nearby.restart()
         saved = true
@@ -385,16 +430,23 @@ fun ProfileTab(repo: Repo, nearby: NearbyManager) {
             "Le numéro et les réseaux sont envoyés uniquement aux personnes que vous acceptez, et resynchronisés quand elles sont à proximité.",
             color = Muted, fontSize = 12.sp
         )
-        TextButton(onClick = {
-            nearby.stop()
-            repo.clearAll()
-        }) { Text("Effacer toutes mes données", color = Pink) }
+        Text(
+            "🔒 Vos messages sont chiffrés de bout en bout : les téléphones qui les relaient ne peuvent pas les lire.",
+            color = Muted, fontSize = 12.sp
+        )
+        TextButton(onClick = { confirmClear = true }) { Text("Effacer toutes mes données", color = Pink) }
     }
 }
 
 // ---------- Autour de moi ----------
 @Composable
-fun NearbyScreen(repo: Repo, nearby: NearbyManager, openFriend: (String) -> Unit) {
+fun NearbyScreen(
+    repo: Repo,
+    nearby: NearbyManager,
+    startNearby: () -> Unit,
+    stopNearby: () -> Unit,
+    openFriend: (String) -> Unit
+) {
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -407,8 +459,8 @@ fun NearbyScreen(repo: Repo, nearby: NearbyManager, openFriend: (String) -> Unit
                 Spacer(Modifier.width(8.dp))
                 Switch(checked = repo.visible, onCheckedChange = {
                     repo.setVisibleFlag(it)
-                    if (it) nearby.start() else {
-                        nearby.stop()
+                    if (it) startNearby() else {
+                        stopNearby()
                         repo.status = "En pause : vous n’êtes plus visible et ne voyez plus personne."
                     }
                 })
@@ -422,7 +474,8 @@ fun NearbyScreen(repo: Repo, nearby: NearbyManager, openFriend: (String) -> Unit
                 )
                 Text(
                     if (repo.status.isNotEmpty()) repo.status
-                    else "Bluetooth actif. Vos amis doivent avoir Pssst ouvert, à quelques dizaines de mètres.",
+                    else if (repo.visible) "Bluetooth actif, même application fermée (voir la notification « Pssst est actif »). Portée : quelques dizaines de mètres."
+                    else "Activez « Visible » pour voir les personnes autour.",
                     color = Muted, fontSize = 12.sp
                 )
             }
@@ -529,6 +582,7 @@ fun FriendScreen(repo: Repo, nearby: NearbyManager, uid: String, onBack: () -> U
                     color = Muted, fontSize = 12.sp
                 )
                 if (nearby.isNear(f.uid)) Text("À proximité", color = Green, fontSize = 12.sp)
+                if (f.pk.isNotEmpty()) Text("🔒 Messages chiffrés de bout en bout", color = Muted, fontSize = 12.sp)
             }
         }
         if (f.phone.isNotEmpty()) {
@@ -562,10 +616,18 @@ fun FriendScreen(repo: Repo, nearby: NearbyManager, uid: String, onBack: () -> U
             }
         }
         PButton("Envoyer un message", Modifier.fillMaxWidth()) { onChat() }
-        TextButton(onClick = {
-            repo.removeFriend(uid)
-            onBack()
-        }) { Text("Retirer de mes amis", color = Pink) }
+        var confirmRemove by remember { mutableStateOf(false) }
+        if (confirmRemove) {
+            ConfirmDialog(
+                "Retirer ${f.name} ?",
+                "Son numéro et ses réseaux seront effacés de ce téléphone. Il faudra un nouveau pssst pour redevenir amis.",
+                "Retirer", onDismiss = { confirmRemove = false }
+            ) {
+                repo.removeFriend(uid)
+                onBack()
+            }
+        }
+        TextButton(onClick = { confirmRemove = true }) { Text("Retirer de mes amis", color = Pink) }
     }
 }
 
@@ -590,7 +652,7 @@ fun MessagesScreen(repo: Repo, nearby: NearbyManager, onOpen: (String) -> Unit, 
             InfoCard {
                 Text("Mode Bluetooth", fontWeight = FontWeight.Bold, color = Color.White)
                 Text(
-                    "Les messages partent sans Internet vers vos amis proches, et peuvent être relayés par les autres téléphones Pssst autour.",
+                    "Les messages partent sans Internet, chiffrés de bout en bout. Hors de portée, ils sont relayés par les téléphones Pssst autour et renvoyés dès que votre ami revient (⏳ en attente · ✓ envoyé · ✓✓ reçu).",
                     color = Muted, fontSize = 12.sp
                 )
             }
@@ -641,8 +703,14 @@ fun Bubble(m: Message, showSender: Boolean) {
         ) {
             if (showSender && !m.mine) Text(m.fromName, color = Amber, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             Text(m.text, color = Color.White, fontSize = 15.sp)
+            val tick = if (!m.mine) "" else when (m.status) {
+                ST_WAITING -> "  ⏳"
+                ST_SENT -> "  ✓"
+                else -> "  ✓✓"
+            }
             Text(
-                fmt.format(Date(m.ts)), color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp,
+                (if (m.secure) "🔒 " else "") + fmt.format(Date(m.ts)) + tick,
+                color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp,
                 modifier = Modifier.align(Alignment.End)
             )
         }
@@ -657,15 +725,32 @@ fun ChatScreen(repo: Repo, nearby: NearbyManager, conv: String, onBack: () -> Un
     val title = group?.name ?: friend?.name ?: "Discussion"
     val msgs = repo.messages.filter { it.convId == conv }
     val state = rememberLazyListState()
+    val ctx = LocalContext.current
     var text by remember { mutableStateOf("") }
+    var confirmLeave by remember { mutableStateOf(false) }
 
     LaunchedEffect(conv) {
         repo.activeConv = conv
-        repo.unread.remove(conv)
+        repo.markRead(conv)
+        Notifs.cancel(ctx, conv)
     }
     LaunchedEffect(msgs.size) {
         if (msgs.isNotEmpty()) state.animateScrollToItem(msgs.size - 1)
-        repo.unread.remove(conv)
+        if (Holder.foreground) {
+            repo.markRead(conv)
+            Notifs.cancel(ctx, conv)
+        }
+    }
+
+    if (confirmLeave && group != null) {
+        ConfirmDialog(
+            "Quitter « ${group.name} » ?",
+            "Vous ne recevrez plus les messages de ce groupe et la discussion sera effacée de ce téléphone.",
+            "Quitter", onDismiss = { confirmLeave = false }
+        ) {
+            nearby.leaveGroup(group.gid)
+            onBack()
+        }
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -678,9 +763,13 @@ fun ChatScreen(repo: Repo, nearby: NearbyManager, conv: String, onBack: () -> Un
                 val sub = when {
                     group != null -> "${group.members.size} membres · ${group.members.count { nearby.isNear(it) }} à proximité"
                     friend != null && nearby.isNear(friend.uid) -> "À proximité · Bluetooth"
-                    else -> "Hors de portée · relais par les téléphones Pssst proches"
+                    else -> "Hors de portée · envoi dès son retour"
                 }
-                Text(sub, color = if (sub.startsWith("À")) Blue else Muted, fontSize = 12.sp)
+                val lock = if ((group != null && group.key.isNotEmpty()) || (friend != null && friend.pk.isNotEmpty())) " · 🔒" else ""
+                Text(sub + lock, color = if (sub.startsWith("À")) Blue else Muted, fontSize = 12.sp)
+            }
+            if (group != null) {
+                TextButton(onClick = { confirmLeave = true }) { Text("Quitter", color = Pink) }
             }
         }
         LazyColumn(

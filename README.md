@@ -19,16 +19,29 @@ Ouvrez le dossier, attendez la synchronisation, puis **Build > Build APK(s)**.
 
 ## Utilisation entre amis
 - Chaque ami installe l'APK, crée son profil (photo, prénom, bio, numéro, réseaux).
-- Activez **Bluetooth** et **Localisation**, acceptez les autorisations.
-- Laissez l'application **ouverte** : les personnes proches apparaissent dans l'onglet *Autour*.
+- Activez **Bluetooth** et **Localisation**, acceptez les autorisations (et les notifications).
+- Les personnes proches apparaissent dans l'onglet *Autour*.
 - Touchez **Pssst** : l'autre reçoit la demande et peut **Accepter** ou **Refuser**.
 - Après acceptation : profil complet dans *Amis* (appeler, WhatsApp, ouvrir les réseaux).
-- Onglet *Messages* : discussions privées et **groupes** (bouton « Nouveau groupe »).
+- Onglet *Messages* : discussions privées et **groupes** (bouton « Nouveau groupe », « Quitter »).
 
-## Limites de cette première version
-- L'application doit être ouverte à l'écran pour être visible.
+## Nouveautés de la version 1.1
+- **Fonctionne application fermée** : une notification « Pssst est actif » indique que vous restez
+  visible (bouton « Mettre en pause » dans la notification, ou interrupteur *Visible*).
+- **Notifications** pour les pssst reçus, les nouveaux amis, les nouveaux groupes et les messages.
+- **Chiffrement de bout en bout** (ECDH P-256 + AES-256-GCM) des messages privés et de groupe :
+  les téléphones relais ne peuvent plus les lire. Un 🔒 l'indique.
+- **Messages en attente conservés** même après redémarrage, et renvoyés automatiquement dès que
+  l'ami revient à portée (pendant 7 jours).
+- **Accusés de réception** : ⏳ en attente · ✓ envoyé · ✓✓ reçu.
+- Les messages de groupe manqués (3 derniers jours) sont rattrapés quand on croise un membre.
+- Confirmation avant de retirer un ami, quitter un groupe ou tout effacer.
+
+## Limites
 - La distance exacte n'est pas affichée (Nearby ne la fournit pas) : « À proximité ».
 - Portée : de quelques mètres à quelques dizaines de mètres selon les téléphones et les murs.
-- Les messages relayés passent par les téléphones Pssst proches ; ils ne sont pas encore
-  chiffrés de bout en bout dans cette version.
+- Certains fabricants (Xiaomi, Oppo, Huawei…) arrêtent les applis en arrière-plan : si Pssst
+  s'arrête, désactivez l'« optimisation de la batterie » pour Pssst dans les réglages.
+- Les amis ajoutés avec la version 1.0 passent au chiffrement dès que les deux téléphones ont la 1.1
+  et se sont croisés une fois.
 - Nécessite les services Google Play (absents sur les Huawei récents).
